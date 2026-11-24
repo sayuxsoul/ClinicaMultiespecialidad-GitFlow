@@ -12,12 +12,14 @@ namespace ClinicaAPI.Controllers
     {
         private readonly AppDbContext _context;
 
+        // Constructor que recibe el contexto de la base de datos.
         public PacientesController(AppDbContext context)
         {
             _context = context;
         }
 
         // GET: api/Pacientes
+        // Obtiene todos los pacientes que se encuentran activos.
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
         public async Task<ActionResult<IEnumerable<object>>> ObtenerPacientes()
@@ -30,6 +32,7 @@ namespace ClinicaAPI.Controllers
         }
 
         // GET: api/Pacientes/5
+        // Busca un paciente activo utilizando su identificador.
         [HttpGet("{id}")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -50,12 +53,14 @@ namespace ClinicaAPI.Controllers
         }
 
         // GET: api/Pacientes/buscar?termino=...
+        // Permite buscar pacientes por nombre, apellido, cédula o código.
         [HttpGet("buscar")]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<IEnumerable<object>>> BuscarPacientes(
             [FromQuery] string termino)
         {
+            // Comprobar que el usuario haya escrito un término de búsqueda.
             if (string.IsNullOrWhiteSpace(termino))
             {
                 return BadRequest(new
@@ -78,6 +83,7 @@ namespace ClinicaAPI.Controllers
         }
 
         // POST: api/Pacientes
+        // Registra un paciente nuevo o reactiva uno que estaba inactivo.
         [HttpPost]
         [ProducesResponseType(StatusCodes.Status201Created)]
         [ProducesResponseType(StatusCodes.Status200OK)]
@@ -86,21 +92,26 @@ namespace ClinicaAPI.Controllers
         public async Task<ActionResult<object>> CrearPaciente(
             [FromBody] Paciente datos)
         {
+            // Comprobar que los datos recibidos sean válidos.
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
+            // Aplicar las validaciones personalizadas del paciente.
             if (!ValidarPaciente(datos, out var error))
             {
                 return BadRequest(new { mensaje = error });
             }
 
+            // Comprobar si ya existe un paciente con la misma cédula.
             var pacienteExistente = await _context.Pacientes
                 .FirstOrDefaultAsync(p => p.Cedula == datos.Cedula);
 
             if (pacienteExistente != null)
             {
+                // No permitir registrar una cédula que pertenezca
+                // a un paciente que todavía se encuentra activo.
                 if (pacienteExistente.Activo)
                 {
                     return Conflict(new
@@ -109,6 +120,7 @@ namespace ClinicaAPI.Controllers
                     });
                 }
 
+                // Reactivar el paciente si anteriormente fue eliminado.
                 pacienteExistente.Nombres = datos.Nombres;
                 pacienteExistente.Apellidos = datos.Apellidos;
                 pacienteExistente.FechaNacimiento = datos.FechaNacimiento;
@@ -122,6 +134,7 @@ namespace ClinicaAPI.Controllers
                 return Ok(ConvertirADto(pacienteExistente));
             }
 
+            // Crear un nuevo registro con los datos recibidos.
             var nuevoPaciente = new Paciente
             {
                 Cedula = datos.Cedula,
@@ -138,6 +151,7 @@ namespace ClinicaAPI.Controllers
             _context.Pacientes.Add(nuevoPaciente);
             await _context.SaveChangesAsync();
 
+            // Devolver la ubicación del paciente recién creado.
             return CreatedAtAction(
                 nameof(ObtenerPaciente),
                 new { id = nuevoPaciente.PacienteId },
@@ -145,6 +159,7 @@ namespace ClinicaAPI.Controllers
         }
 
         // PUT: api/Pacientes/5
+        // Actualiza los datos de un paciente existente.
         [HttpPut("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -154,16 +169,19 @@ namespace ClinicaAPI.Controllers
             int id,
             [FromBody] Paciente datos)
         {
+            // Comprobar que los datos recibidos sean válidos.
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
+            // Validar los campos del paciente antes de actualizar.
             if (!ValidarPaciente(datos, out var error))
             {
                 return BadRequest(new { mensaje = error });
             }
 
+            // Buscar el paciente que se desea modificar.
             var paciente = await _context.Pacientes
                 .FirstOrDefaultAsync(p => p.PacienteId == id && p.Activo);
 
@@ -175,6 +193,7 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
+            // Comprobar que ningún otro paciente tenga esa cédula.
             var cedulaExistente = await _context.Pacientes
                 .AnyAsync(p => p.Cedula == datos.Cedula &&
                                p.PacienteId != id);
@@ -187,6 +206,7 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
+            // Actualizar los datos del paciente encontrado.
             paciente.Cedula = datos.Cedula;
             paciente.Nombres = datos.Nombres;
             paciente.Apellidos = datos.Apellidos;
@@ -201,6 +221,7 @@ namespace ClinicaAPI.Controllers
         }
 
         // DELETE: api/Pacientes/5
+        // Realiza una eliminación lógica cambiando el estado del paciente.
         [HttpDelete("{id}")]
         [ProducesResponseType(StatusCodes.Status204NoContent)]
         [ProducesResponseType(StatusCodes.Status404NotFound)]
@@ -217,6 +238,7 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
+            // Marcar el paciente como inactivo sin borrar su información.
             paciente.Activo = false;
 
             await _context.SaveChangesAsync();
@@ -224,19 +246,21 @@ namespace ClinicaAPI.Controllers
             return NoContent();
         }
 
-        // Validaciones del paciente
+        // Validaciones personalizadas de los datos del paciente.
         private static bool ValidarPaciente(
             Paciente datos,
             out string error)
         {
             error = string.Empty;
 
+            // Comprobar que la cédula sea obligatoria.
             if (string.IsNullOrWhiteSpace(datos.Cedula))
             {
                 error = "La cédula es obligatoria.";
                 return false;
             }
 
+            // Verificar que la cédula tenga exactamente 11 dígitos.
             if (datos.Cedula.Length != 11 ||
                 !datos.Cedula.All(char.IsDigit))
             {
@@ -244,24 +268,28 @@ namespace ClinicaAPI.Controllers
                 return false;
             }
 
+            // Comprobar que los nombres sean obligatorios.
             if (string.IsNullOrWhiteSpace(datos.Nombres))
             {
                 error = "Los nombres son obligatorios.";
                 return false;
             }
 
+            // Comprobar que los apellidos sean obligatorios.
             if (string.IsNullOrWhiteSpace(datos.Apellidos))
             {
                 error = "Los apellidos son obligatorios.";
                 return false;
             }
 
+            // El teléfono se mantiene como obligatorio según la regla actual.
             if (string.IsNullOrWhiteSpace(datos.Telefono))
             {
                 error = "El teléfono es obligatorio.";
                 return false;
             }
 
+            // Validar el correo solamente cuando se proporciona.
             if (!string.IsNullOrWhiteSpace(datos.Correo) &&
                 !new System.ComponentModel.DataAnnotations.EmailAddressAttribute()
                     .IsValid(datos.Correo))
@@ -270,11 +298,10 @@ namespace ClinicaAPI.Controllers
                 return false;
             }
 
-            if (datos.FechaNacimiento > DateOnly.FromDateTime(DateTime.Today))
-            {
-                error = "La fecha de nacimiento no puede ser futura.";
-                return false;
-            }
+            // Permitir una fecha de nacimiento vacía,
+            // pero impedir que se registre una fecha futura.
+            if (datos.FechaNacimiento.HasValue &&
+                datos.FechaNacimiento.Value > DateOnly.FromDateTime(DateTime.Today))
             {
                 error = "La fecha de nacimiento no puede ser futura.";
                 return false;
@@ -283,7 +310,8 @@ namespace ClinicaAPI.Controllers
             return true;
         }
 
-        // Convertir paciente a DTO
+        // Convertir los datos del paciente a un objeto DTO
+        // para controlar la información que devuelve la API.
         private static object ConvertirADto(Paciente paciente)
         {
             return new
