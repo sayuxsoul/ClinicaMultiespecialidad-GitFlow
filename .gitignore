@@ -1,0 +1,14 @@
+# Archivos generados por .NET
+**/bin/
+**/obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.csproj.user
+
+# Archivos comprimidos
+*.zip
+# Configuración local
+**/appsettings.Development.json
