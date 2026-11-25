@@ -18,17 +18,51 @@ namespace ClinicaAPI.Controllers
             _context = context;
         }
 
-        // GET: api/Pacientes
-        // Obtiene todos los pacientes que se encuentran activos.
+        // GET: api/Pacientes?page=1&pageSize=10
+        // Obtiene los pacientes activos utilizando paginación.
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
-        public async Task<ActionResult<IEnumerable<object>>> ObtenerPacientes()
+        [ProducesResponseType(StatusCodes.Status400BadRequest)]
+        public async Task<ActionResult<object>> ObtenerPacientes(
+            [FromQuery] int page = 1,
+            [FromQuery] int pageSize = 10)
         {
-            var pacientes = await _context.Pacientes
-                .Where(p => p.Activo)
+            // Validar los parámetros de paginación.
+            if (page < 1 || pageSize < 1 || pageSize > 100)
+            {
+                return BadRequest(new
+                {
+                    mensaje = "La página debe ser mayor que cero y el tamaño debe estar entre 1 y 100."
+                });
+            }
+
+            // Consultar solamente los pacientes activos.
+            var consulta = _context.Pacientes
+                .Where(p => p.Activo);
+
+            // Obtener el total de pacientes activos.
+            var totalRegistros = await consulta.CountAsync();
+
+            // Calcular el total de páginas disponibles.
+            var totalPaginas = (int)Math.Ceiling(
+                totalRegistros / (double)pageSize);
+
+            // Obtener los pacientes correspondientes a la página solicitada.
+            var pacientes = await consulta
+                .OrderBy(p => p.PacienteId)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .ToListAsync();
 
-            return Ok(pacientes.Select(p => ConvertirADto(p)));
+            // Devolver los pacientes junto con la información de paginación.
+            return Ok(new
+            {
+                paginaActual = page,
+                tamañoPagina = pageSize,
+                totalRegistros,
+                totalPaginas,
+                pacientes = pacientes.Select(p => ConvertirADto(p))
+            });
         }
 
         // GET: api/Pacientes/5
