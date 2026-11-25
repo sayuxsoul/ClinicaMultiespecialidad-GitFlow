@@ -166,6 +166,48 @@ namespace ClinicaAPI.Controllers
             });
         }
 
+        // GET: api/Pacientes/estadisticas
+        // Obtiene estadísticas generales de los pacientes.
+        [HttpGet("estadisticas")]
+        [ProducesResponseType(StatusCodes.Status200OK)]
+        public async Task<ActionResult<object>> ObtenerEstadisticas()
+        {
+            // Obtener la fecha de inicio del mes actual.
+            var inicioMes = new DateTime(
+                DateTime.Today.Year,
+                DateTime.Today.Month,
+                1);
+
+            // Obtener la fecha de inicio del próximo mes.
+            var inicioProximoMes = inicioMes.AddMonths(1);
+
+            // Consultar el total de pacientes registrados.
+            var totalPacientes = await _context.Pacientes.CountAsync();
+
+            // Consultar la cantidad de pacientes activos.
+            var pacientesActivos = await _context.Pacientes
+                .CountAsync(p => p.Activo);
+
+            // Consultar la cantidad de pacientes inactivos.
+            var pacientesInactivos = await _context.Pacientes
+                .CountAsync(p => !p.Activo);
+
+            // Consultar los pacientes registrados durante el mes actual.
+            var registrosMesActual = await _context.Pacientes
+                .CountAsync(p => p.FechaRegistro >= inicioMes &&
+                                 p.FechaRegistro < inicioProximoMes);
+
+            return Ok(new
+            {
+                totalPacientes,
+                pacientesActivos,
+                pacientesInactivos,
+                registrosMesActual,
+                mes = DateTime.Today.Month,
+                año = DateTime.Today.Year
+            });
+        }
+
         // GET: api/Pacientes/5
         // Busca un paciente activo utilizando su identificador.
         [HttpGet("{id}")]
