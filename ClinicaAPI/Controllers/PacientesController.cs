@@ -18,14 +18,18 @@ namespace ClinicaAPI.Controllers
             _context = context;
         }
 
-        // GET: api/Pacientes?page=1&pageSize=10
-        // Obtiene los pacientes activos utilizando paginación.
+        // GET: api/Pacientes?page=1&pageSize=10&nombre=Juan&apellido=Perez&cedula=001&correo=gmail
+        // Obtiene los pacientes activos utilizando filtros y paginación.
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         public async Task<ActionResult<object>> ObtenerPacientes(
             [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10)
+            [FromQuery] int pageSize = 10,
+            [FromQuery] string? nombre = null,
+            [FromQuery] string? apellido = null,
+            [FromQuery] string? cedula = null,
+            [FromQuery] string? correo = null)
         {
             // Validar los parámetros de paginación.
             if (page < 1 || pageSize < 1 || pageSize > 100)
@@ -40,7 +44,36 @@ namespace ClinicaAPI.Controllers
             var consulta = _context.Pacientes
                 .Where(p => p.Activo);
 
-            // Obtener el total de pacientes activos.
+            // Aplicar el filtro por nombre cuando se proporcione.
+            if (!string.IsNullOrWhiteSpace(nombre))
+            {
+                nombre = nombre.Trim();
+                consulta = consulta.Where(p => p.Nombres.Contains(nombre));
+            }
+
+            // Aplicar el filtro por apellido cuando se proporcione.
+            if (!string.IsNullOrWhiteSpace(apellido))
+            {
+                apellido = apellido.Trim();
+                consulta = consulta.Where(p => p.Apellidos.Contains(apellido));
+            }
+
+            // Aplicar el filtro por cédula cuando se proporcione.
+            if (!string.IsNullOrWhiteSpace(cedula))
+            {
+                cedula = cedula.Trim();
+                consulta = consulta.Where(p => p.Cedula.Contains(cedula));
+            }
+
+            // Aplicar el filtro por correo cuando se proporcione.
+            if (!string.IsNullOrWhiteSpace(correo))
+            {
+                correo = correo.Trim();
+                consulta = consulta.Where(p => p.Correo != null &&
+                                               p.Correo.Contains(correo));
+            }
+
+            // Obtener el total de registros que cumplen los filtros.
             var totalRegistros = await consulta.CountAsync();
 
             // Calcular el total de páginas disponibles.
@@ -272,7 +305,7 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
-            // Marcar el paciente como inactivo sin borrar su información.
+            // Marcar al paciente como inactivo sin borrar su información.
             paciente.Activo = false;
 
             await _context.SaveChangesAsync();
