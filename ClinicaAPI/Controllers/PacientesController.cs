@@ -18,8 +18,8 @@ namespace ClinicaAPI.Controllers
             _context = context;
         }
 
-        // GET: api/Pacientes?page=1&pageSize=10&nombre=Juan&apellido=Perez&cedula=001&correo=gmail
-        // Obtiene los pacientes activos utilizando filtros y paginación.
+        // GET: api/Pacientes?page=1&pageSize=10&nombre=Juan&ordenarPor=nombre&direccion=asc
+        // Obtiene pacientes activos utilizando filtros, paginación y ordenamiento.
         [HttpGet]
         [ProducesResponseType(StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -29,7 +29,9 @@ namespace ClinicaAPI.Controllers
             [FromQuery] string? nombre = null,
             [FromQuery] string? apellido = null,
             [FromQuery] string? cedula = null,
-            [FromQuery] string? correo = null)
+            [FromQuery] string? correo = null,
+            [FromQuery] string ordenarPor = "pacienteId",
+            [FromQuery] string direccion = "asc")
         {
             // Validar los parámetros de paginación.
             if (page < 1 || pageSize < 1 || pageSize > 100)
@@ -40,32 +42,62 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
+            // Normalizar los parámetros de ordenamiento.
+            ordenarPor = ordenarPor.Trim().ToLowerInvariant();
+            direccion = direccion.Trim().ToLowerInvariant();
+
+            // Validar los campos permitidos para ordenar.
+            var camposPermitidos = new[]
+            {
+                "pacienteid",
+                "nombre",
+                "apellido",
+                "fecharegistro"
+            };
+
+            if (!camposPermitidos.Contains(ordenarPor))
+            {
+                return BadRequest(new
+                {
+                    mensaje = "El campo de ordenamiento no es válido. Utilice pacienteId, nombre, apellido o fechaRegistro."
+                });
+            }
+
+            // Validar la dirección del ordenamiento.
+            if (direccion != "asc" && direccion != "desc")
+            {
+                return BadRequest(new
+                {
+                    mensaje = "La dirección debe ser asc o desc."
+                });
+            }
+
             // Consultar solamente los pacientes activos.
             var consulta = _context.Pacientes
                 .Where(p => p.Activo);
 
-            // Aplicar el filtro por nombre cuando se proporcione.
+            // Aplicar el filtro por nombre.
             if (!string.IsNullOrWhiteSpace(nombre))
             {
                 nombre = nombre.Trim();
                 consulta = consulta.Where(p => p.Nombres.Contains(nombre));
             }
 
-            // Aplicar el filtro por apellido cuando se proporcione.
+            // Aplicar el filtro por apellido.
             if (!string.IsNullOrWhiteSpace(apellido))
             {
                 apellido = apellido.Trim();
                 consulta = consulta.Where(p => p.Apellidos.Contains(apellido));
             }
 
-            // Aplicar el filtro por cédula cuando se proporcione.
+            // Aplicar el filtro por cédula.
             if (!string.IsNullOrWhiteSpace(cedula))
             {
                 cedula = cedula.Trim();
                 consulta = consulta.Where(p => p.Cedula.Contains(cedula));
             }
 
-            // Aplicar el filtro por correo cuando se proporcione.
+            // Aplicar el filtro por correo.
             if (!string.IsNullOrWhiteSpace(correo))
             {
                 correo = correo.Trim();
@@ -80,20 +112,56 @@ namespace ClinicaAPI.Controllers
             var totalPaginas = (int)Math.Ceiling(
                 totalRegistros / (double)pageSize);
 
+            // Aplicar el ordenamiento seleccionado.
+            IOrderedQueryable<Paciente> consultaOrdenada =
+                (ordenarPor, direccion) switch
+                {
+                    ("nombre", "asc") =>
+                        consulta.OrderBy(p => p.Nombres)
+                                .ThenBy(p => p.PacienteId),
+
+                    ("nombre", "desc") =>
+                        consulta.OrderByDescending(p => p.Nombres)
+                                .ThenBy(p => p.PacienteId),
+
+                    ("apellido", "asc") =>
+                        consulta.OrderBy(p => p.Apellidos)
+                                .ThenBy(p => p.PacienteId),
+
+                    ("apellido", "desc") =>
+                        consulta.OrderByDescending(p => p.Apellidos)
+                                .ThenBy(p => p.PacienteId),
+
+                    ("fecharegistro", "asc") =>
+                        consulta.OrderBy(p => p.FechaRegistro)
+                                .ThenBy(p => p.PacienteId),
+
+                    ("fecharegistro", "desc") =>
+                        consulta.OrderByDescending(p => p.FechaRegistro)
+                                .ThenBy(p => p.PacienteId),
+
+                    ("pacienteid", "desc") =>
+                        consulta.OrderByDescending(p => p.PacienteId),
+
+                    _ =>
+                        consulta.OrderBy(p => p.PacienteId)
+                };
+
             // Obtener los pacientes correspondientes a la página solicitada.
-            var pacientes = await consulta
-                .OrderBy(p => p.PacienteId)
+            var pacientes = await consultaOrdenada
                 .Skip((page - 1) * pageSize)
                 .Take(pageSize)
                 .ToListAsync();
 
-            // Devolver los pacientes junto con la información de paginación.
+            // Devolver los pacientes y los datos de paginación y ordenamiento.
             return Ok(new
             {
                 paginaActual = page,
                 tamañoPagina = pageSize,
                 totalRegistros,
                 totalPaginas,
+                ordenarPor,
+                direccion,
                 pacientes = pacientes.Select(p => ConvertirADto(p))
             });
         }
@@ -127,7 +195,6 @@ namespace ClinicaAPI.Controllers
         public async Task<ActionResult<IEnumerable<object>>> BuscarPacientes(
             [FromQuery] string termino)
         {
-            // Comprobar que el usuario haya escrito un término de búsqueda.
             if (string.IsNullOrWhiteSpace(termino))
             {
                 return BadRequest(new
@@ -159,26 +226,21 @@ namespace ClinicaAPI.Controllers
         public async Task<ActionResult<object>> CrearPaciente(
             [FromBody] Paciente datos)
         {
-            // Comprobar que los datos recibidos sean válidos.
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            // Aplicar las validaciones personalizadas del paciente.
             if (!ValidarPaciente(datos, out var error))
             {
                 return BadRequest(new { mensaje = error });
             }
 
-            // Comprobar si ya existe un paciente con la misma cédula.
             var pacienteExistente = await _context.Pacientes
                 .FirstOrDefaultAsync(p => p.Cedula == datos.Cedula);
 
             if (pacienteExistente != null)
             {
-                // No permitir registrar una cédula que pertenezca
-                // a un paciente que todavía se encuentra activo.
                 if (pacienteExistente.Activo)
                 {
                     return Conflict(new
@@ -187,7 +249,6 @@ namespace ClinicaAPI.Controllers
                     });
                 }
 
-                // Reactivar el paciente si anteriormente fue eliminado.
                 pacienteExistente.Nombres = datos.Nombres;
                 pacienteExistente.Apellidos = datos.Apellidos;
                 pacienteExistente.FechaNacimiento = datos.FechaNacimiento;
@@ -201,7 +262,6 @@ namespace ClinicaAPI.Controllers
                 return Ok(ConvertirADto(pacienteExistente));
             }
 
-            // Crear un nuevo registro con los datos recibidos.
             var nuevoPaciente = new Paciente
             {
                 Cedula = datos.Cedula,
@@ -218,7 +278,6 @@ namespace ClinicaAPI.Controllers
             _context.Pacientes.Add(nuevoPaciente);
             await _context.SaveChangesAsync();
 
-            // Devolver la ubicación del paciente recién creado.
             return CreatedAtAction(
                 nameof(ObtenerPaciente),
                 new { id = nuevoPaciente.PacienteId },
@@ -236,19 +295,16 @@ namespace ClinicaAPI.Controllers
             int id,
             [FromBody] Paciente datos)
         {
-            // Comprobar que los datos recibidos sean válidos.
             if (!ModelState.IsValid)
             {
                 return BadRequest(ModelState);
             }
 
-            // Validar los campos del paciente antes de actualizar.
             if (!ValidarPaciente(datos, out var error))
             {
                 return BadRequest(new { mensaje = error });
             }
 
-            // Buscar el paciente que se desea modificar.
             var paciente = await _context.Pacientes
                 .FirstOrDefaultAsync(p => p.PacienteId == id && p.Activo);
 
@@ -260,7 +316,6 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
-            // Comprobar que ningún otro paciente tenga esa cédula.
             var cedulaExistente = await _context.Pacientes
                 .AnyAsync(p => p.Cedula == datos.Cedula &&
                                p.PacienteId != id);
@@ -273,7 +328,6 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
-            // Actualizar los datos del paciente encontrado.
             paciente.Cedula = datos.Cedula;
             paciente.Nombres = datos.Nombres;
             paciente.Apellidos = datos.Apellidos;
@@ -305,7 +359,6 @@ namespace ClinicaAPI.Controllers
                 });
             }
 
-            // Marcar al paciente como inactivo sin borrar su información.
             paciente.Activo = false;
 
             await _context.SaveChangesAsync();
@@ -320,14 +373,12 @@ namespace ClinicaAPI.Controllers
         {
             error = string.Empty;
 
-            // Comprobar que la cédula sea obligatoria.
             if (string.IsNullOrWhiteSpace(datos.Cedula))
             {
                 error = "La cédula es obligatoria.";
                 return false;
             }
 
-            // Verificar que la cédula tenga exactamente 11 dígitos.
             if (datos.Cedula.Length != 11 ||
                 !datos.Cedula.All(char.IsDigit))
             {
@@ -335,28 +386,24 @@ namespace ClinicaAPI.Controllers
                 return false;
             }
 
-            // Comprobar que los nombres sean obligatorios.
             if (string.IsNullOrWhiteSpace(datos.Nombres))
             {
                 error = "Los nombres son obligatorios.";
                 return false;
             }
 
-            // Comprobar que los apellidos sean obligatorios.
             if (string.IsNullOrWhiteSpace(datos.Apellidos))
             {
                 error = "Los apellidos son obligatorios.";
                 return false;
             }
 
-            // El teléfono se mantiene como obligatorio según la regla actual.
             if (string.IsNullOrWhiteSpace(datos.Telefono))
             {
                 error = "El teléfono es obligatorio.";
                 return false;
             }
 
-            // Validar el correo solamente cuando se proporciona.
             if (!string.IsNullOrWhiteSpace(datos.Correo) &&
                 !new System.ComponentModel.DataAnnotations.EmailAddressAttribute()
                     .IsValid(datos.Correo))
@@ -365,8 +412,6 @@ namespace ClinicaAPI.Controllers
                 return false;
             }
 
-            // Permitir una fecha de nacimiento vacía,
-            // pero impedir que se registre una fecha futura.
             if (datos.FechaNacimiento.HasValue &&
                 datos.FechaNacimiento.Value > DateOnly.FromDateTime(DateTime.Today))
             {
@@ -377,8 +422,7 @@ namespace ClinicaAPI.Controllers
             return true;
         }
 
-        // Convertir los datos del paciente a un objeto DTO
-        // para controlar la información que devuelve la API.
+        // Convierte los datos del paciente a un objeto DTO.
         private static object ConvertirADto(Paciente paciente)
         {
             return new
